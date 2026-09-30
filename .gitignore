@@ -1,0 +1,39 @@
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Generated corpora / tokenised data ---
+# The notebooks build these into their own working directory. Both the raw
+# corpora and these derived binaries live outside the archive -- do not commit
+# regenerated copies.
+inews.*
+all.B
+all.90
+all.sort.I
+*.7622
+*.B
+*.U
+
+# --- Experiment artifacts written by the notebooks in this repo ---
+*.pk
+*.pt
+*.pth
+*.npy
+*.npz
+*.ckpt
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
