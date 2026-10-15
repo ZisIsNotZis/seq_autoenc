@@ -32,7 +32,8 @@ all.sort.I
 *.npz
 *.ckpt
 
-# --- OS / editor ---
+# --- Local agent state / OS / editor ---
+.pi/
 .DS_Store
 Thumbs.db
 .idea/
