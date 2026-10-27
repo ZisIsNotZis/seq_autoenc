@@ -68,7 +68,7 @@ Then open **[`01_multiscale_autoencoder.ipynb`](01_multiscale_autoencoder.ipynb)
 | Notebook | What it does |
 | --- | --- |
 | [`01_multiscale_autoencoder.ipynb`](01_multiscale_autoencoder.ipynb) | **Canonical.** Loader, `toH`/`toB` tokenisers, full container set, 256-byte multi-scale run, `DecR` comparison, 7,622-character variant, four result plots. |
-| [`02_multiscale_short_windows.ipynb`](02_multiscale_short_windows.ipynb) | Short-window (8 / 16 token) variants of the canonical multi-scale run. |
+| [`02_multiscale_short_windows.ipynb`](02_multiscale_short_windows.ipynb) | The 256-token run repeated with 16- and 8-token windows, plus the `DecR` comparison. |
 | [`03_scale_decomposition.ipynb`](03_scale_decomposition.ipynb) | The 32-token model with different numbers of retained scales. |
 | [`04_window_length_sweep.ipynb`](04_window_length_sweep.ipynb) | Window-length / depth sweep (256, 16, 9) plus a fixed-vector `Enc` comparison. |
 | [`05_fixed_vector_encoder.ipynb`](05_fixed_vector_encoder.ipynb) | Fixed-vector `Enc` next-token model on `inews.7622`, with an n-gram entropy check. |
@@ -111,13 +111,19 @@ The containers are redefined inline in each notebook; there is no shared module.
 | `EmbeddingAuto(EmbeddingBag)` | Static learned n-gram embedding: `mode='sum'` with a learned exponential decay `l = 0.5 ** arange(l-1, -1, -1)` passed as `per_sample_weights`. |
 | `Affine`, `Log` | Per-channel scale+bias; and a live `matplotlib` logger that redraws the running metric. |
 
+Repository layout: a flat set of twelve notebooks, plus `assets/` (logo, extracted plots), `docs/`, and the licence. Each notebook is readable on its own and shares no module with the others.
+
 `EncDec` in full:
 
 ```python
 class EncDec(Sequential):
+    def __init__(s, *a, n=0):
+        super().__init__(*a)
+        s.n = n
+
     def forward(s, x):
         Y = []
-        for i in range(int(np.log2(x.size(2)))):
+        for i in range(int(np.log2(x.size(2))) - s.n):  # n drops the deepest levels
             x = s[0](x)                          # downsample one more level
             y = s[1](x)                          # predict the sequence at this level
             for i in range(i + 1):
@@ -126,11 +132,15 @@ class EncDec(Sequential):
         return torch.cat(Y)                      # one logit block per scale
 ```
 
-The canonical model:
+The canonical model, with the three `EncDec` sub-modules spelled out:
 
-```python
-Embedding(256, k) → transpose(1, 2) → EncDec(...) → Conv1d(k, k, 1)
-→ BatchNorm1d → SiLU → Conv1d(k, 256, 1)
+```text
+Embedding(256, k) → transpose(1, 2) → EncDec(down, head, up)
+  → Conv1d(k, k, 1) → BatchNorm1d → SiLU → Conv1d(k, 256, 1)
+
+  down: Add(Conv3(k)-BN-SiLU-Conv1(k), Conv3(k)) → MaxPool1d(2)
+  head: Conv1d(k, k, 1) → BN → SiLU → Conv1d(k, k, 1)
+  up:   Add(ConvT3(k)@2-BN-SiLU, ConvT3(k)@2)          # ConvT3 = ConvTranspose1d(...,3,2,1,1)
 ```
 
 Training splits the concatenated logits by scale and supervises every block against the same target:
@@ -141,7 +151,7 @@ functional.cross_entropy(x.transpose(1, 2),
                          y.expand(len(x), -1, -1)).backward()
 ```
 
-Adam + `OneCycleLR`; the reported metric is top-1 accuracy per scale. Window lengths across the notebooks range from 8 to 2,048 tokens.
+Adam + `OneCycleLR`; the reported metric is top-1 accuracy per scale. Window lengths in the training notebooks range from 5 tokens (`05`) to 256 tokens (`01`, `02`, `04`); `06` / `07` instead take one 5-byte n-gram per sample, 2,048 samples per step.
 
 The fold-into-`Sequential` idiom is shared with the author's [cznn](https://github.com/ZisIsNotZis/cznn), but there is no code dependency in either direction.
 
@@ -153,6 +163,8 @@ Both corpora come from the author's private parent archive. **Neither the raw te
 | --- | --- | --- |
 | Chinese news (`inews`) | `../nlpdat/inews/{train,dev,test}.txt`, `_!_`-delimited | `inews.U` (raw UTF-16 units), `inews.7622` (character vocabulary), `inews.B` (CJK, top-256 bytes) |
 | Python source | `../nlpdat/py/{py,pyp,ipynb,ipynbp}.txt` | `all.B` (byte-level), `all.90` (90-symbol vocabulary); `all.sort.I` is an intermediate |
+
+Two more paths are written or read and are not in the repository: `11_ngram_continuation.ipynb` writes its majority-continuation tables as `inews.{n}B.B` / `inews.-{n}H.H`, and `12_suffix_array_predictor.ipynb` reads `inews.-U` — a file no notebook here produces, so it has to be supplied by hand.
 
 `inews` is loaded as UTF-16 code units:
 

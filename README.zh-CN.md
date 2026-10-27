@@ -68,7 +68,7 @@ jupyter lab
 | Notebook | 内容 |
 | --- | --- |
 | [`01_multiscale_autoencoder.ipynb`](01_multiscale_autoencoder.ipynb) | **主入口。** 数据加载、`toH`/`toB`、完整容器集、256 字节多尺度训练、`DecR` 对比、7,622 字符变体、四张结果图。 |
-| [`02_multiscale_short_windows.ipynb`](02_multiscale_short_windows.ipynb) | 主模型的短窗口（8 / 16 词元）版本。 |
+| [`02_multiscale_short_windows.ipynb`](02_multiscale_short_windows.ipynb) | 把 256 词元的训练换成 16 / 8 词元短窗口再做一遍，另含 `DecR` 对比。 |
 | [`03_scale_decomposition.ipynb`](03_scale_decomposition.ipynb) | 32 词元模型，比较保留不同层数时的表现。 |
 | [`04_window_length_sweep.ipynb`](04_window_length_sweep.ipynb) | 窗口长度 / 深度扫描（256、16、9），附固定向量 `Enc` 对比。 |
 | [`05_fixed_vector_encoder.ipynb`](05_fixed_vector_encoder.ipynb) | `inews.7622` 上的固定向量 `Enc` 下一词元模型，并用 n-gram 熵做对照。 |
@@ -111,13 +111,19 @@ jupyter lab
 | `EmbeddingAuto(EmbeddingBag)` | 静态可学习 n-gram 嵌入：`mode='sum'`，把可学习指数衰减 `l = 0.5 ** arange(l-1, -1, -1)` 作为 `per_sample_weights` 传入。 |
 | `Affine`、`Log` | 逐通道缩放加偏置；以及一个用 `matplotlib` 实时重绘指标的日志器。 |
 
+仓库结构很扁平：十二个 notebook，加上 `assets/`（标志与抽出的图）、`docs/` 和许可证。每个 notebook 都能单独阅读，彼此之间没有共享模块。
+
 `EncDec` 全文：
 
 ```python
 class EncDec(Sequential):
+    def __init__(s, *a, n=0):
+        super().__init__(*a)
+        s.n = n
+
     def forward(s, x):
         Y = []
-        for i in range(int(np.log2(x.size(2)))):
+        for i in range(int(np.log2(x.size(2))) - s.n):  # n 用来丢掉最深的几层
             x = s[0](x)                          # 再下采样一层
             y = s[1](x)                          # 在该层预测整段序列
             for i in range(i + 1):
@@ -126,11 +132,15 @@ class EncDec(Sequential):
         return torch.cat(Y)                      # 每个尺度一块 logits
 ```
 
-主模型：
+主模型，以及 `EncDec` 的三个子模块：
 
-```python
-Embedding(256, k) → transpose(1, 2) → EncDec(...) → Conv1d(k, k, 1)
-→ BatchNorm1d → SiLU → Conv1d(k, 256, 1)
+```text
+Embedding(256, k) → transpose(1, 2) → EncDec(down, head, up)
+  → Conv1d(k, k, 1) → BatchNorm1d → SiLU → Conv1d(k, 256, 1)
+
+  down: Add(Conv3(k)-BN-SiLU-Conv1(k), Conv3(k)) → MaxPool1d(2)
+  head: Conv1d(k, k, 1) → BN → SiLU → Conv1d(k, k, 1)
+  up:   Add(ConvT3(k)@2-BN-SiLU, ConvT3(k)@2)          # ConvT3 = ConvTranspose1d(...,3,2,1,1)
 ```
 
 训练时按尺度切开拼接后的 logits，每一块都对同一个目标做监督：
@@ -141,7 +151,7 @@ functional.cross_entropy(x.transpose(1, 2),
                          y.expand(len(x), -1, -1)).backward()
 ```
 
-优化器是 Adam + `OneCycleLR`，指标是每个尺度的 top-1 准确率。各 notebook 使用的窗口长度从 8 到 2,048 词元不等。
+优化器是 Adam + `OneCycleLR`，指标是每个尺度的 top-1 准确率。训练类 notebook 的窗口长度从 5 词元（`05`）到 256 词元（`01`、`02`、`04`）不等；`06` / `07` 则是每个样本取一个 5 字节的 n-gram，每步 2,048 个样本。
 
 把层折叠进 `Sequential` 的写法与作者的 [cznn](https://github.com/ZisIsNotZis/cznn) 同源，但两边没有代码依赖。
 
@@ -153,6 +163,8 @@ functional.cross_entropy(x.transpose(1, 2),
 | --- | --- | --- |
 | 中文新闻（`inews`） | `../nlpdat/inews/{train,dev,test}.txt`，以 `_!_` 分隔 | `inews.U`（原始 UTF-16 单元）、`inews.7622`（字符词表）、`inews.B`（CJK，取前 256 个字节） |
 | Python 源码 | `../nlpdat/py/{py,pyp,ipynb,ipynbp}.txt` | `all.B`（字节级）、`all.90`（90 类词表）；`all.sort.I` 是中间文件 |
+
+还有两个路径会读或写，但仓库里没有：`11_ngram_continuation.ipynb` 把多数延续表写成 `inews.{n}B.B` / `inews.-{n}H.H`；`12_suffix_array_predictor.ipynb` 读的是 `inews.-U`，而没有任何 notebook 会生成它，只能自己准备。
 
 `inews` 按 UTF-16 码元读取：
 
