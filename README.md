@@ -1,95 +1,117 @@
-# seq_autoenc
+<p align="right"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
 
-Multi-scale **sequence autoencoders** over Chinese news text and Python source:
-reconstruct a token sequence *simultaneously at every down-sampling resolution*,
-plus the n-gram / suffix-array baselines that measure how predictable the data
-actually is.
+<p align="center">
+  <img src="assets/logo.svg" width="112" alt="seq_autoenc logo: an hourglass of token bars">
+</p>
 
-## What this is / why it exists
+<h1 align="center">seq_autoenc</h1>
 
-This is a 2026 personal research scratchpad, not a library. It attacks one
-question: **how well can a convolutional encoder–decoder reconstruct a sequence,
-and how does that depend on the resolution you ask it to reconstruct at?**
+<p align="center"><strong>Multi-scale sequence autoencoders over Chinese news text and Python source.</strong></p>
 
-The organising idea is the `EncDec` module: instead of a single bottleneck, the
-encoder walks down one `MaxPool1d(2)` step at a time and, at *each* level, a
-small head predicts the full input sequence; the decoder then walks back up. All
-levels' logits are concatenated, and `cross_entropy` is applied at **every scale
-at once**. This turns the autoencoder into a coarse-to-fine reconstruction
-pyramid: the deepest level has the most context but the fewest positions, the
-shallowest level is nearly a local n-gram model. The accuracy-vs-scale curves
-(saved as images, see *What is here vs. not*) are the result.
+<p align="center">
+  Most autoencoders squeeze a sequence into one vector.<br>
+  This one reconstructs the whole sequence at every down-sampling scale, at once.
+</p>
 
-Around that core sit three supporting strands: (a) how to tokenise the data
-(character-level 7622-way vs. byte-level 256-way), (b) a second, explicitly
-autoregressive decoder (`DecR`, a GRU unrolled over a time embedding) to compare
-against the parallel multi-scale one, and (c) measurements of the data's own
-predictability — order-k conditional entropy, most-frequent-continuation n-gram
-baselines, and a suffix-array next-character predictor — which is what tells you
-whether the autoencoder is doing anything beyond lookup.
+<p align="center">
+  Around that core sit the n-gram and suffix-array baselines that measure how predictable the data really is.
+</p>
 
-**No notebook contains prose explaining any of this.** There is no written
-hypothesis, method, or discussion anywhere in the directory; the framing above is
-reconstructed entirely from the code. The whole directory contains just six
-markdown cells: four are captions for the saved result plots (`64 ![image.png] …`)
-and two are the `inews` loader pasted in as markdown instead of code.
+---
 
-## Data
+<p align="center">
+  <img src="assets/results/accuracy-512.png" width="680" alt="Per-scale top-1 accuracy curves from a 512-token training run">
+</p>
 
-Two corpora, both loaded from the author's private parent archive — **neither is
-included here, and the generated versions are not either.**
+<p align="center">
+  <sub>Per-scale top-1 accuracy during a 512-token training run. Saved from <a href="01_multiscale_autoencoder.ipynb"><code>01_multiscale_autoencoder.ipynb</code></a>; the original plot has no axis labels and the run configuration was not recorded.</sub>
+</p>
 
-**1. `inews` — Chinese news text.** Loaded by:
+## What it does
 
-```python
-def inews(a="../nlpdat/inews/dev.txt"):
-    a = np.loadtxt(a, "U", None, "_!_", usecols=(2, 3), encoding="utf-8").view("I").view("2H")[..., 0]
-    a[:, -1] = ord("。")
-    return a[a.astype("?")]
+The core module is `EncDec`. Instead of a single bottleneck, the encoder walks down one `MaxPool1d(2)` step at a time. At each level a small head predicts the full input sequence, and the decoder upsamples that prediction back to full length. All levels' logits are concatenated, and `cross_entropy` is applied at **every scale at once**.
+
+That turns an autoencoder into a coarse-to-fine reconstruction pyramid: the deepest level has the most context but the fewest positions; the shallowest level is almost a local n-gram model. The saved accuracy-vs-scale curves are the result.
+
+Three related strands run alongside it:
+
+- **Tokenisation** — character-level (7,622-way) versus byte-level (256-way).
+- **Decoder shape** — a parallel multi-scale decoder versus `DecR`, an explicitly autoregressive GRU decoder.
+- **Data predictability** — order-k conditional entropy, most-frequent-continuation n-grams, context-uniqueness counts, and a suffix-array next-character predictor.
+
+## Quick start
+
+This is a notebook archive, not a package — there is nothing to build or install from PyPI.
+
+```bash
+git clone https://github.com/ZisIsNotZis/seq_autoenc.git
+cd seq_autoenc
+pip install torch numpy matplotlib tqdm numba jupyterlab
+jupyter lab
 ```
 
-`../nlpdat/inews/{dev,test,train}.txt` are `_!_`-delimited records; columns 2 and
-3 are read as text, concatenated across all three splits, and held as UTF-16 code
-units. `Untitled-Copy1.ipynb` computes the vocabularies and writes the derived
-binaries:
+Then open **[`01_multiscale_autoencoder.ipynb`](01_multiscale_autoencoder.ipynb)** — the canonical notebook, with the full pipeline and the four saved result plots.
 
-| Artifact | How it is built | Vocabulary |
-| --- | --- | --- |
-| `inews.U` | raw UTF-16 units, `tofile` | all chars |
-| `inews.7622` | `toH()`: character → id map | 7,622 characters |
-| `inews.B` | `toB()`: keep only CJK `U+4E00..U+9FA5`, take the top-256 characters, map each to a 2-byte code and drop the high byte | 256 bytes |
+> **Before you run:** neither corpus is in this repository. The training notebooks stop at their first `np.memmap` unless you supply `inews.B` / `inews.7622` or `../nlpdat/py/all.B`. See [Data](#data). The analysis notebooks need the same derived binaries.
 
-**2. Python source.** `../nlpdat/py/all.B` (byte-level) and `../nlpdat/py/all.90`
-(90-symbol), assembled in `test.ipynb` from `../nlpdat/py/{py,pyp,ipynb,ipynbp}.txt`
-via an intermediate `../nlpdat/py/all.sort.I`. The `p`-suffixed files are a second
-variant of the same sources (the notebooks do not say how they differ).
+## What it can do now
 
-**None of `inews.B`, `inews.7622`, `inews.U`, `all.B`, `all.90`, or the raw text
-files are present in this repo.** The training notebooks read the derived
-binaries; the analysis notebooks read `../nlpdat/py/all.B` directly. So the
-project is not runnable end-to-end without the private corpus — only the
-tokenisation notebook (`Untitled-Copy1.ipynb`, cells 0) could regenerate the
-`inews.*` files, and it too needs `../nlpdat/inews/*.txt`.
+- **Reconstruct at every scale.** One convolutional encoder–decoder predicts the full sequence at each down-sampling level, supervised by a single `cross_entropy` over all levels.
+- **Compare two vocabularies.** Byte-level 256-symbol Chinese text, or a 7,622-character vocabulary; Python source is also covered with a 90-symbol vocabulary.
+- **Compare decoder shapes.** The parallel multi-scale `EncDec` against `DecR`, a GRU stepped over a time embedding, and against a fixed-vector `Enc` next-token baseline.
+- **Measure the data, not only the model.** Order-k conditional entropy, unique-context fractions, majority-continuation n-gram tables, and a suffix-array predictor that can greedily generate text.
+- **Watch per-scale metrics live.** A small `Log` helper redraws the running accuracy of every scale inside a Jupyter notebook.
+- **Probe learned n-gram order.** `EmbeddingAuto` is an `EmbeddingBag` with a learned exponential position decay; the notebooks print the normalised weights to show the effective context length.
+
+## Notebook map
+
+| Notebook | What it does |
+| --- | --- |
+| [`01_multiscale_autoencoder.ipynb`](01_multiscale_autoencoder.ipynb) | **Canonical.** Loader, `toH`/`toB` tokenisers, full container set, 256-byte multi-scale run, `DecR` comparison, 7,622-character variant, four result plots. |
+| [`02_multiscale_short_windows.ipynb`](02_multiscale_short_windows.ipynb) | Short-window (8 / 16 token) variants of the canonical multi-scale run. |
+| [`03_scale_decomposition.ipynb`](03_scale_decomposition.ipynb) | The 32-token model with different numbers of retained scales. |
+| [`04_window_length_sweep.ipynb`](04_window_length_sweep.ipynb) | Window-length / depth sweep (256, 16, 9) plus a fixed-vector `Enc` comparison. |
+| [`05_fixed_vector_encoder.ipynb`](05_fixed_vector_encoder.ipynb) | Fixed-vector `Enc` next-token model on `inews.7622`, with an n-gram entropy check. |
+| [`06_learned_ngram_embedding.ipynb`](06_learned_ngram_embedding.ipynb) | `EmbeddingAuto` learned n-gram embedding with a linear head, at several widths. |
+| [`07_embedding_head_variants.ipynb`](07_embedding_head_variants.ipynb) | `EmbeddingAuto` head variants: raw, Softmax, LogSoftmax, ReLU, Affine; prints learned decay weights. |
+| [`08_python_source_encoder.ipynb`](08_python_source_encoder.ipynb) | Fixed-vector `Enc` next-token model on Python source (90 symbols), k = 64 / 128 / 512. |
+| [`09_conditional_entropy.ipynb`](09_conditional_entropy.ipynb) | Order-k conditional entropy of Chinese text, k = 1..8, in bits per character. |
+| [`10_context_uniqueness.ipynb`](10_context_uniqueness.ipynb) | Unique-context fractions for n = 4, 8, 12, with `numba` helpers. |
+| [`11_ngram_continuation.ipynb`](11_ngram_continuation.ipynb) | Most-frequent-continuation tables for n = 2..5, at character and byte level. |
+| [`12_suffix_array_predictor.ipynb`](12_suffix_array_predictor.ipynb) | Suffix-array next-character predictor and greedy text generation. |
+
+## Saved results
+
+Four training curves survive from the original runs. They are embedded in the canonical notebook and extracted here as images. The axes are unlabelled and the numeric logs are gone, so read them as shapes, not as reproducible benchmarks.
+
+| Window 64 | Window 256 | Window 512 |
+| :---: | :---: | :---: |
+| <img src="assets/results/accuracy-64.png" width="260" alt="Accuracy curves, 64-token window"> | <img src="assets/results/accuracy-256.png" width="260" alt="Accuracy curves, 256-token window"> | <img src="assets/results/accuracy-512.png" width="260" alt="Accuracy curves, 512-token window"> |
+
+<p align="center">
+  <img src="assets/results/autoregressive-decoder.png" width="420" alt="Autoregressive DecR accuracy by decode position">
+</p>
+
+<p align="center"><sub><code>DecR</code> accuracy as a function of decode position: strong for the first few characters, then flattening out.</sub></p>
 
 ## Architecture
 
-The containers are re-defined inline in each notebook (no shared module). The core
-set, as it appears in `Untitled-Copy1.ipynb`:
+The containers are redefined inline in each notebook; there is no shared module. The core set, as it appears in the canonical notebook:
 
 | Name | What it does |
 | --- | --- |
 | `F` | Wraps a function as a `Module` (`s.f(x)` or `s.f(x, s.a)`). |
 | `Enc` | Runs a `Sequential` stack until the length axis is 1 and returns `x[..., 0]` — a fixed-size encoder. |
-| `EncDec(*a, n=0)` | **The core.** See below. |
+| `EncDec(*a, n=0)` | **The core.** Downsamples one level, predicts at that level, upsamples back to full length; repeats and concatenates. `n` stops the recursion early. |
 | `Add` | `Sequential` that sums branch outputs: `sum((s(x) for s in s[1:]), s[0](x))`. |
 | `Res` | `Sequential` plus a residual add. |
 | `Rep(n, *a)` | Applies a stack `n` times. |
 | `Mean(Add)` | `Add` divided by the number of branches. |
-| `DecR(gru, head)` | Autoregressive decoder: starts from the encoder's final state and repeatedly steps a `GRU(1, k)` fed a `linspace(0, 1, i)` time embedding, yielding a reconstruction of length `i` at each step. |
-| `EmbeddingAuto(EmbeddingBag)` | A static n-gram embedding: `EmbeddingBag(n, k, mode='sum')` with a learned exponentially-decaying per-position weight `l = 0.5 ** arange(l-1, -1, -1)` passed as `per_sample_weights`. Learned n-gram mixture, trained by SGD — the neural counterpart of the n-gram baselines below. |
-| `Affine`, `Log` | Per-channel scale+bias; and a live `matplotlib` logger that plots the running metric with `clear_output` / `canvas.draw`. |
+| `DecR(gru, head)` | Autoregressive decoder: steps a `GRU(1, k)` over a `linspace(0, 1, i)` time embedding, yielding a reconstruction of length `i` at each step. |
+| `EmbeddingAuto(EmbeddingBag)` | Static learned n-gram embedding: `mode='sum'` with a learned exponential decay `l = 0.5 ** arange(l-1, -1, -1)` passed as `per_sample_weights`. |
+| `Affine`, `Log` | Per-channel scale+bias; and a live `matplotlib` logger that redraws the running metric. |
 
-`EncDec` in detail:
+`EncDec` in full:
 
 ```python
 class EncDec(Sequential):
@@ -99,191 +121,102 @@ class EncDec(Sequential):
             x = s[0](x)                          # downsample one more level
             y = s[1](x)                          # predict the sequence at this level
             for i in range(i + 1):
-                y = s[2](y)                      # upsample the prediction back to full length
+                y = s[2](y)                      # upsample the prediction to full length
             Y.append(y)
         return torch.cat(Y)                      # one logit block per scale
 ```
 
-with factories `s[0]` = encoder stage (conv + `MaxPool1d(2)`), `s[1]` = per-scale
-head (1×1 convs, often down-projecting to a small `k`), `s[2]` = upsampling
-(`ConvTranspose1d(k, k, 3, 2, 1, 1)`; some notebooks drop it entirely in favour of
-`F(lambda x: x.repeat_interleave(2, 2))`). The `n=` argument stops the recursion
-`n` levels early.
-
-Assembled model (the canonical run):
+The canonical model:
 
 ```python
-Embedding(256, k) → transpose(1,2) → EncDec(...) → Conv1d(k,k,1) → BatchNorm1d → SiLU → Conv1d(k,256,1)
+Embedding(256, k) → transpose(1, 2) → EncDec(...) → Conv1d(k, k, 1)
+→ BatchNorm1d → SiLU → Conv1d(k, 256, 1)
 ```
 
-## The training loop
+Training splits the concatenated logits by scale and supervises every block against the same target:
 
 ```python
-a = torch.tensor(np.memmap("inews.B", "B")).unfold(0, 256, 1)   # sliding windows
-...
-for t in range(O.total_steps // 100):
-    for t in range(100):
-        y = a[torch.randint(len(a), (4,))].long()
-        x = m(y).unflatten(0, (int(np.log2(a.size(1))), -1))     # split logits by scale
-        functional.cross_entropy(x.transpose(1, 2),
-                                 y.expand(len(x), -1, -1)).backward()  # supervise EVERY scale
-        o.step(); o.zero_grad(); O.step()
-    log((x.argmax(2) == y).float().mean((1, 2)).cpu())           # one accuracy per scale
+x = m(y).unflatten(0, (int(np.log2(a.size(1))), -1))
+functional.cross_entropy(x.transpose(1, 2),
+                         y.expand(len(x), -1, -1)).backward()
 ```
 
-Adam + `OneCycleLR`. Peak LR varies from `0.001` to `0.01` and `total_steps` from
-10,000 to 1,000,000 across notebooks. The reported metric is top-1 accuracy **per
-scale**, produced by the `unflatten` that splits the concatenated logits back into
-one block per resolution. `Log` renders those per-scale curves live.
+Adam + `OneCycleLR`; the reported metric is top-1 accuracy per scale. Window lengths across the notebooks range from 8 to 2,048 tokens.
 
-Window lengths used: 8, 16, 32, 64, 256, 512, 1024, 2048; batch 4–1024;
-embedding width `k`/`K` from 16 to 512.
+The fold-into-`Sequential` idiom is shared with the author's [cznn](https://github.com/ZisIsNotZis/cznn), but there is no code dependency in either direction.
 
-## The baselines and predictability analysis
+## Data
 
-These are separate from the autoencoders and are the most self-contained code here.
+Both corpora come from the author's private parent archive. **Neither the raw text nor the derived binaries are included here.**
 
-* **`Untitled1.ipynb`** — order-k conditional entropy of Chinese text in bits/char,
-  `k = 1..8`, computed as `(log2(s) - m @ log2(m) / s) / k` over the count
-  distribution of k-grams. Also a joint-bigram variant. This is the measurement
-  that says how much context the autoencoder would need to be worth anything.
-* **`test.ipynb`** (61 cells) — n-gram context statistics on `inews.7622` and
-  `../nlpdat/py/all.B`: for context length `n = 4, 8, 12`, the fraction of
-  positions whose context is unique, computed with `np.unique` over strided
-  `V{n+1}` views, plus `numba`-`njit` helpers (`cat`, a hand-written `qsort` over
-  context bytes) for the same counting faster.
-* **`test2.ipynb`** — builds **most-frequent-continuation tables** for `n = 2..5`
-  at character and byte level, sorts them, writes `inews.-{n}H.H` /
-  `inews.{n}B.B`, and scores the fraction of positions where the majority
-  continuation is correct. A pure static n-gram predictor baseline.
-* **`Untitled2.ipynb`** — a **suffix-array predictor**: `argsort` over strided
-  16-byte views of `inews.-U`, then `np.searchsorted(sorter=...)` to find the
-  longest matching context and emit the following character. `f('你是谁?我', 64)`
-  greedily generates text from it. This is the classical compression-style model
-  the autoencoder is implicitly competing with.
+| Corpus | Source | Derived artifacts |
+| --- | --- | --- |
+| Chinese news (`inews`) | `../nlpdat/inews/{train,dev,test}.txt`, `_!_`-delimited | `inews.U` (raw UTF-16 units), `inews.7622` (character vocabulary), `inews.B` (CJK, top-256 bytes) |
+| Python source | `../nlpdat/py/{py,pyp,ipynb,ipynbp}.txt` | `all.B` (byte-level), `all.90` (90-symbol vocabulary); `all.sort.I` is an intermediate |
 
-## How to run
+`inews` is loaded as UTF-16 code units:
 
-Notebook-only. There is **no single entrypoint** and no package to install.
-
-```bash
-pip install torch numpy matplotlib tqdm numba jupyterlab
-jupyter lab
+```python
+def inews(a="../nlpdat/inews/dev.txt"):
+    a = np.loadtxt(a, "U", None, "_!_", usecols=(2, 3), encoding="utf-8")
+    a = a.view("I").view("2H")[..., 0]
+    a[:, -1] = ord("。")
+    return a[a.astype("?")]
 ```
 
-Then open a notebook and run all cells.
+`01_multiscale_autoencoder.ipynb` can regenerate `inews.U`, `inews.7622`, and `inews.B` from the raw text. `all.B` / `all.90` cannot be rebuilt from anything in this repository: their source text is gone.
 
-### Read this before running
+## How to develop
 
-* **CUDA-only.** Most notebooks set
-  `torch.set_default_tensor_type(torch.cuda.FloatTensor)` with no `.cpu()`
-  fallback. Remove that line for a CPU host.
-* **The data is missing** (see *Data*). Place `inews.B`, `inews.7622`, `inews.U`
-  and/or `../nlpdat/py/all.B` where the notebook expects them, or edit the paths.
-  The `inews.*` files can be regenerated from `../nlpdat/inews/*.txt` by
-  `Untitled-Copy1.ipynb` cell 0; `all.B` / `all.90` cannot, the sources are gone.
-* **Checkpoints referenced but absent:** `60.pk`, `214.pk`, and the output of
-  `torch.save(..., 'Untitled-Copy7.pk')`. `Untitled-Copy7.ipynb` cell 4 writes
-  that file; nothing reads it.
-* `%matplotlib notebook` requires a live Jupyter kernel for the `Log` plots.
-* The analysis notebooks (`Untitled1`, `test`, `test2`, `Untitled2`) depend only
-  on numpy/numba and their data files — they are the easiest to run.
+There is no build, no test suite, and no CI. The notebooks are the source of truth, and each one intentionally redefines its containers so it can be read on its own.
 
-### Which notebook should I read?
+- **Environment:** Python 3, PyTorch, NumPy, matplotlib, tqdm, numba, JupyterLab. `pip install torch numpy matplotlib tqdm numba jupyterlab`.
+- **CUDA-only:** most training notebooks call `torch.set_default_tensor_type(torch.cuda.FloatTensor)` with no `.cpu()` fallback. Remove that line for a CPU host.
+- **Data paths:** place the derived binaries where the notebook expects them, or edit the `np.memmap` paths. Do not commit corpora, checkpoints, or generated binaries — `.gitignore` covers `*.pk`, `*.pt`, `*.npy`, and the `inews.*` / `all.*` families.
+- **Run in a scratch directory:** the notebooks write generated binaries into their own working directory and to `../nlpdat/py/all.sort.I` outside the repo.
+- **Before committing:** clear notebook outputs. The four saved plots are already extracted under [`assets/results/`](assets/results/); there is no need to keep large embedded attachments in new work.
 
-**Canonical: [`Untitled-Copy1.ipynb`](Untitled-Copy1.ipynb)** — 17 cells,
-~1,197 effective code lines, the largest and the most complete. It contains the
-whole pipeline in order: the `inews` loader and the `toH`/`toB` tokenisers that
-build `inews.U`/`.7622`/`.B`; the full container set (`F`, `Enc`, `EncDec`, `Add`,
-`Res`, `Rep`, `Mean`, `Log`); the canonical 256-byte multi-scale autoencoder run;
-the `DecR` GRU autoregressive decoder comparison; a 7622-character-vocab variant;
-and the four saved accuracy-vs-scale result images. Start here.
+## How to contribute
 
-`Untitled.ipynb` is a near-duplicate of it (308 code lines, the same four result
-images, a trimmed version of the same runs) — read `Untitled-Copy1.ipynb` instead.
+This is a research archive, not a maintained library, but focused fixes are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the short version: open an issue with a clear reproduction, keep pull requests small, and never add the private corpora or model checkpoints.
 
-Then, for the supporting strands: `test.ipynb` + `test2.ipynb` + `Untitled1.ipynb`
-for the predictability baselines, and `Untitled2.ipynb` for the suffix-array
-predictor.
+Useful contributions: reproducibility notes, clearer data-prep steps, a CPU path, and extracting the repeated containers into an importable module.
 
-Quick map of the rest: `Untitled-Copy2.ipynb` (3 cells) is the same diagram
-repeated for several lengths; `Untitled-Copy3.ipynb` (8 cells) sweeps window
-lengths 8/16/32 with the full toolkit; `Untitled-Copy4.ipynb` uses the `Enc`
-(fixed-vector) variant instead of `EncDec` and a `Mean` head; `Untitled-Copy5`/
-`-Copy6`/`-Copy7` are the `EmbeddingAuto` (learned n-gram embedding) strand —
-`-Copy6` also tests `Softmax`/`LogSoftmax` and a custom `Affine` on the bag
-output, and prints the learned decay weights (`m[0].l/m[0].l.sum()`) to see the
-effective n-gram order.
+## Roadmap
 
-## What is here vs. not
+**Implemented**
 
-**Here**
+- Multi-scale `EncDec` with reconstruction supervised at every scale.
+- Byte-level (256) and character-level (7,622) tokenisation for Chinese news text.
+- `DecR` autoregressive decoder and fixed-vector `Enc` next-token baselines.
+- `EmbeddingAuto` learned n-gram embedding and head variants.
+- Order-k conditional entropy, context-uniqueness counts, majority-continuation n-grams, and a suffix-array predictor.
+- Four saved per-scale accuracy curves, extracted under `assets/results/`.
 
-* 12 `Untitled*.ipynb` / `test*.ipynb` notebooks, ~3,275 effective code lines,
-  `nbformat` 4.5, `python3` kernel, no `.py` files.
-* The complete architecture set and both training loops, re-defined per notebook.
-* **Four saved result images**, embedded as cell attachments in
-  `Untitled-Copy1.ipynb` (and duplicated in `Untitled.ipynb`) — these are the only
-  recorded results in the directory. Three are labelled 64 / 256 / 512 (cell 3) and
-  are per-scale top-1 accuracy curves; one is the autoregressive `DecR` curve
-  (cell 5). They are real plots of real runs, but the axes are unlabelled, the run
-  configuration is not recorded next to them, and the numbers behind them are gone.
-  What they show: within a run, accuracy falls monotonically as you move to
-  coarser scales (one curve saturates just under 1.0 while the others plateau at
-  roughly 0.8 / 0.5 / 0.2 / 0.1 / 0.05 after ~1,000 logged points), and for a
-  given curve position the whole family sits higher as the training window grows
-  64 → 256 → 512. The `DecR` autoregressive plot shows the same shape as a
-  function of decode position: near-1.0 for the first few characters, collapsing
-  into the 0.25–0.4 band by position ~90.
+**Planned**
 
-**Not here**
+- Extract `F`, `Enc`, `EncDec`, `Add`, `Res`, `Rep`, `Mean`, `DecR`, and `EmbeddingAuto` into an importable `seq_autoenc` package.
+- Document a corpus-prep recipe that reproduces `inews.B`, `inews.7622`, and `inews.U` from the private raw text.
+- Add CPU/MPS fallbacks and a small synthetic smoke test that runs without the corpora.
+- Record run configurations and numeric logs next to every saved plot.
+- Write a short technical note that turns the four curves into a result, not just an artifact.
 
-* **No written-up results.** No paper, report, notes, tables, or metrics files.
-  The entire directory has six markdown cells: four image captions and two copies
-  of the `inews` loader mistakenly typed as markdown.
-* **No numeric logs.** Unlike a sibling project, nothing here appends metrics to
-  `.txt`. Every training metric exists only inside the two saved plots.
-* **No checkpoints.** `60.pk` and `214.pk` are loaded and absent.
-* **No data.** Both raw corpora and all derived binaries (`inews.B`, `inews.U`,
-  `inews.7622`, `all.B`, `all.90`, `inews.*-n*`) are outside the archive.
-* **No cell outputs** — all `stream`/`execute_result`/`error` outputs were cleared
-  before archiving; only the four markdown image attachments survive.
-* **No packaging, tests, CLI, or importable module.**
-* **No git history** — extracted from the private archive with no `.git`.
-* **No explanation** of the hypothesis or of the `pyp.txt`/`ipynbp.txt` variants.
+### Where this could go
 
-## Relationship to `nn.py` / `cznn`
+The idea worth keeping is the per-scale supervision: a single convolutional stack that is forced to be useful at several temporal resolutions at once. With a documented corpus recipe and a small importable module, the same object could serve as a compact testbed for hierarchical sequence models — and the n-gram / suffix-array baselines already in the repository would keep that testbed honest.
 
-Checked and **not applicable**: this directory contains **no `.py` files at all**,
-no notebook imports `nn` or `from nn import *`, and `cznn` is never referenced.
-Nothing was deleted. The containers (`F`, `Add`, `Res`, `Rep`, `Mean`, `EncDec`)
-are hand-written inline and self-contained; they use the same
-fold-into-`Sequential` idiom as the author's published
-[`cznn`](https://github.com/ZisIsNotZis/cznn) (where `Add`/`Mul`/`Res` are
-similarly `Sequential` subclasses), but there is no code dependency in either
-direction. `cznn` would be a natural home if this were ever tidied into a library.
+## Status and limitations
 
-## Security / redaction
+This is a 2026 personal research archive, published for provenance and readability. It is not maintained, and it is not reproducible as shipped.
 
-* Absolute home-directory paths: **none were found** in this directory, so
-  none needed genericising. All data references are already relative
-  (`../nlpdat/...`, `inews.B`).
-* The standard credential gate (private-key PEM headers, key/token/password
-  assignments, the employer mail domain, internal-network hostnames, bare IPv4
-  literals) returns **nothing** here, and a broader JWT/PII sweep (JWT-shaped
-  strings, e-mail addresses, phone-shaped digit runs) also returns nothing. No
-  redaction was necessary in this directory.
-* The source notebooks write derived data **into the working directory** their
-  parents expected (`inews.B`, `inews.7622`, `inews.U` in the notebook's own cwd,
-  and `../nlpdat/py/all.sort.I` outside it). Run them in a scratch directory — do
-  not let them drop generated binaries into this repo or write into `../`.
+- The corpora are missing, so the training notebooks cannot run end-to-end.
+- Most notebooks are CUDA-only.
+- Results survive as four plots, not as numeric logs or checkpoints.
+- The plot axes are unlabelled and the run configurations were not recorded.
+- There is no packaging, CLI, test suite, or CI.
 
-## Status
+The detailed evidence and boundaries live in [`docs/project-status.md`](docs/project-status.md).
 
-`Status: research/archive` — a 2026 personal research scratchpad, published as-is
-for provenance and readability. Not maintained, not reproducible without the
-missing corpora.
+## License
 
-**License: none.** No `LICENSE` file was present in the source and none is added
-here. Treat as all-rights-reserved / personal research; add an explicit license
-before relying on it or reusing the code.
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
