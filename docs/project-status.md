@@ -53,6 +53,9 @@ License: AGPL-3.0-only (see `../LICENSE`).
 - Data paths: `../nlpdat/inews/{train,dev,test}.txt` (`_!_`-delimited),
   `../nlpdat/py/{py,pyp,ipynb,ipynbp}.txt`, derived `inews.B` / `inews.7622` /
   `inews.U` / `all.B` / `all.90`, intermediate `../nlpdat/py/all.sort.I`.
+  `12_suffix_array_predictor.ipynb` reads `inews.-U`, which no notebook in the
+  repository writes; `11_ngram_continuation.ipynb` writes its continuation tables
+  as `inews.{n}B.B` / `inews.-{n}H.H` and they are not committed.
 
 ## Boundaries
 
