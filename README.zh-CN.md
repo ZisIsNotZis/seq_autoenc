@@ -231,4 +231,4 @@ def inews(a="../nlpdat/inews/dev.txt"):
 
 ## 许可证
 
-[GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0-only）。
+[GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0-only）。版权所有 © 2026 ZisIsNotZis。

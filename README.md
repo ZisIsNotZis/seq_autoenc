@@ -231,4 +231,4 @@ The detailed evidence and boundaries live in [`docs/project-status.md`](docs/pro
 
 ## License
 
-[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). Copyright © 2026 ZisIsNotZis.
